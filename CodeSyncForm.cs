@@ -18,6 +18,13 @@ namespace CodeSync
         private List<string> _allRenderFiles;
         private List<string> _allEngineFiles;
 
+        private readonly BackgroundWorker _worker = new BackgroundWorker();
+        private List<string> _renderNewFiles = new List<string>();
+        private List<string> _renderModifiedFiles = new List<string>();
+
+        private List<string> _engineNewFiles = new List<string>();
+        private List<string> _engineModifiedFiles = new List<string>();
+
         public CodeSyncForm()
         {
             InitializeComponent();
@@ -87,7 +94,7 @@ namespace CodeSync
                 {
                     foreach (var ext in Exts)
                     {
-                        filteredFiles.AddRange(Directory.GetFiles(path, ext));
+                        filteredFiles.AddRange(Array.ConvertAll(Directory.GetFiles(path, ext), x => x.Replace(path, "")));
                     }
                 }
                 catch (Exception ex)
@@ -105,6 +112,26 @@ namespace CodeSync
 
         private void RefreshButton_Click(object sender, EventArgs e)
         {
+            _worker.DoWork += OnWorkerDoWork;
+            _worker.RunWorkerCompleted += OnWorkerCompleted;
+
+            _worker.RunWorkerAsync();
+        }
+
+        private string GetFileMD5(string filePath)
+        {
+            using (MD5? md5 = MD5.Create())
+            {
+                using (var stream = File.OpenRead(filePath))
+                {
+                    byte[]? hash = md5.ComputeHash(stream);
+                    return BitConverter.ToString(hash, 0, hash.Length).ToLowerInvariant();
+                }
+            }
+        }
+
+        private void OnWorkerDoWork(object sender, EventArgs e)
+		{
             if (string.IsNullOrEmpty(RenderPath.Text) || string.IsNullOrEmpty(EnginePath.Text))
                 return;
 
@@ -117,21 +144,18 @@ namespace CodeSync
             int renderCount = _allRenderFiles.Count;
             int engineCount = _allEngineFiles.Count;
 
-            //int maxCount = Math.Max(renderCount, engineCount);
+            _renderNewFiles.Clear();
+            _renderModifiedFiles.Clear();
 
-            List<string> renderNewFiles = new List<string>();
-            List<string> renderModifiedFiles = new List<string>();
-
-            List<string> engineNewFiles = new List<string>();
-            List<string> engineModifiedFiles = new List<string>();
-
+            _engineNewFiles.Clear();
+            _engineModifiedFiles.Clear();
 
             int engineIndex = 0;
             for (int i = 0; i < renderCount; i++)
             {
                 if (i >= engineCount)
                 {
-                    renderNewFiles.Add(_allRenderFiles[i]);
+                    _renderNewFiles.Add(_allRenderFiles[i]);
                     continue;
                 }
 
@@ -145,20 +169,20 @@ namespace CodeSync
                     }
                     else
                     {
-                        renderModifiedFiles.Add(_allRenderFiles[i]);
-                        engineModifiedFiles.Add(_allEngineFiles[engineIndex]);
+                        _renderModifiedFiles.Add(_allRenderFiles[i]);
+                        _engineModifiedFiles.Add(_allEngineFiles[engineIndex]);
                     }
                     engineIndex++;
                     continue;
                 }
-                else if(renderFullPath.CompareTo(engineFullPath) < 0)
+                else if (renderFullPath.CompareTo(engineFullPath) < 0)
                 {
-                    renderNewFiles.Add(_allRenderFiles[i]);
+                    _renderNewFiles.Add(_allRenderFiles[i]);
                     continue;
                 }
                 else
                 {
-                    engineNewFiles.Add(_allEngineFiles[engineIndex]);
+                    _engineNewFiles.Add(_allEngineFiles[engineIndex]);
                     engineIndex++;
                     i--;
                     continue;
@@ -167,42 +191,36 @@ namespace CodeSync
 
             if (engineIndex < engineCount - 1)
             {
-                engineNewFiles.AddRange(_allEngineFiles.GetRange(engineIndex, engineCount - engineIndex));
+                _engineNewFiles.AddRange(_allEngineFiles.GetRange(engineIndex, engineCount - engineIndex));
             }
+        }
 
+        private void OnWorkerCompleted(object sender, EventArgs e)
+        {
             Log("RenderNewFiles");
-            foreach(var file in renderNewFiles)
+            foreach (var file in _renderNewFiles)
             {
                 Log(file);
             }
             Log("RenderModFile");
-            foreach (var file in renderModifiedFiles)
+            foreach (var file in _renderModifiedFiles)
             {
                 Log(file);
             }
 
             Log("EngineNewFiles");
-            foreach (var file in engineNewFiles)
+            foreach (var file in _engineNewFiles)
             {
                 Log(file);
             }
             Log("EngineModFile");
-            foreach (var file in engineModifiedFiles)
+            foreach (var file in _engineModifiedFiles)
             {
                 Log(file);
             }
-        }
 
-        private string GetFileMD5(string filePath)
-        {
-            using (MD5? md5 = MD5.Create())
-            {
-                using (var stream = File.OpenRead(filePath))
-                {
-                    byte[]? hash = md5.ComputeHash(stream);
-                    return BitConverter.ToString(hash, 0, hash.Length).ToLowerInvariant();
-                }
-            }
+            _worker.DoWork -= OnWorkerDoWork;
+            _worker.RunWorkerCompleted -= OnWorkerCompleted;
         }
     }
 }
