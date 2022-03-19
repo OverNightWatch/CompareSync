@@ -20,10 +20,11 @@ namespace CodeSync
 
         private readonly BackgroundWorker _worker = new BackgroundWorker();
         private List<string> _renderNewFiles = new List<string>();
-        private List<string> _renderModifiedFiles = new List<string>();
-
         private List<string> _engineNewFiles = new List<string>();
-        private List<string> _engineModifiedFiles = new List<string>();
+        private List<string> _modifiedFiles = new List<string>();
+
+        private string _renderPath;
+        private string _enginePath;
 
         public CodeSyncForm()
         {
@@ -32,18 +33,27 @@ namespace CodeSync
 
         public void Log(string msg)
         {
-            Console.Text += string.Format("\n{0} : {1}", DateTime.Now, msg);
+            Debug.Text += string.Format("\n{0} : {1}", DateTime.Now, msg);
         }
 
         private void RenderPathButton_Click(object sender, EventArgs e)
         {
-            ChooseFolderPath((string s) => RenderPath.Text = s);
+            ChooseFolderPath((string s) =>
+            {
+                RenderPath.Text = s;
+                _renderPath = s;
+            }
+            );
         }
-        
+
 
         private void EnginePathButton_Click(object sender, EventArgs e)
         {
-            ChooseFolderPath((string s) => EnginePath.Text = s);
+            ChooseFolderPath((string s) =>
+            {
+                EnginePath.Text = s;
+                _enginePath = s;
+            });
         }
 
         private void ChooseSuccessAction(string path, TextBox pathBox, List<string> fileInfo, TreeView treeView)
@@ -71,7 +81,7 @@ namespace CodeSync
             }
         }
 
-        private List<string> GetAllFilteredFilesInPath(string path)
+        private List<string> GetAllFilteredFilesInPath(string path, string prefix)
         {
             List<string> filteredFiles = new List<string>();
             Queue<string> queue = new Queue<string>();
@@ -88,22 +98,42 @@ namespace CodeSync
                 }
                 catch (Exception ex)
                 {
-                    Log(ex.ToString());
+                    Console.WriteLine(ex.ToString());
                 }
                 try
                 {
                     foreach (var ext in Exts)
                     {
-                        filteredFiles.AddRange(Array.ConvertAll(Directory.GetFiles(path, ext), x => x.Replace(path, "")));
+                        filteredFiles.AddRange(Array.ConvertAll(Directory.GetFiles(path, ext), x => x.Replace(prefix, "")));
                     }
                 }
                 catch (Exception ex)
                 {
-                    Log(ex.ToString());
+                    Console.WriteLine(ex.ToString());
                 }
             }
             return filteredFiles;
         }
+
+        private List<string> GetAllFilteredDirectory(string rootPath)
+		{
+            return new List<string>
+            {
+                Path.Combine(rootPath, "Engine\\Source"),
+                Path.Combine(rootPath, "Project\\Source")
+            };
+		}
+
+        private List<string> GetAllFilteredFiles(string path)
+		{
+            List<string> allDirs = GetAllFilteredDirectory(path);
+            List<string> allFiles = new List<string>();
+            foreach (var dir in allDirs)
+			{
+                allFiles.AddRange(GetAllFilteredFilesInPath(dir, path));
+			}
+            return allFiles;
+		}
 
         private void SetupTreeView(List<FileInfo> files, TreeView treeView)
         {
@@ -122,21 +152,29 @@ namespace CodeSync
         {
             using (MD5? md5 = MD5.Create())
             {
-                using (var stream = File.OpenRead(filePath))
+                try
                 {
-                    byte[]? hash = md5.ComputeHash(stream);
-                    return BitConverter.ToString(hash, 0, hash.Length).ToLowerInvariant();
+                    using (var stream = File.OpenRead(filePath))
+                    {
+                        byte[]? hash = md5.ComputeHash(stream);
+                        return BitConverter.ToString(hash, 0, hash.Length).ToLowerInvariant();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    //Log(ex.ToString().Trim());
                 }
             }
+            return String.Empty;
         }
 
         private void OnWorkerDoWork(object sender, EventArgs e)
-		{
-            if (string.IsNullOrEmpty(RenderPath.Text) || string.IsNullOrEmpty(EnginePath.Text))
+        {
+            if (string.IsNullOrEmpty(_renderPath) || string.IsNullOrEmpty(_enginePath))
                 return;
 
-            _allRenderFiles = GetAllFilteredFilesInPath(RenderPath.Text).ToList();
-            _allEngineFiles = GetAllFilteredFilesInPath(EnginePath.Text).ToList();
+            _allRenderFiles = GetAllFilteredFiles(_renderPath);
+            _allEngineFiles = GetAllFilteredFiles(_enginePath);
 
             _allEngineFiles.Sort((l, r) => l.CompareTo(r));
             _allRenderFiles.Sort((l, r) => l.CompareTo(r));
@@ -145,10 +183,9 @@ namespace CodeSync
             int engineCount = _allEngineFiles.Count;
 
             _renderNewFiles.Clear();
-            _renderModifiedFiles.Clear();
-
             _engineNewFiles.Clear();
-            _engineModifiedFiles.Clear();
+
+            _modifiedFiles.Clear();
 
             int engineIndex = 0;
             for (int i = 0; i < renderCount; i++)
@@ -159,30 +196,30 @@ namespace CodeSync
                     continue;
                 }
 
-                string renderFullPath = _allRenderFiles[i];
-                string engineFullPath = _allEngineFiles[engineIndex];
+                string renderFullPath = _renderPath + _allRenderFiles[i];
+                string engineFullPath = _enginePath + _allEngineFiles[engineIndex];
 
-                if (renderFullPath.CompareTo(engineFullPath) == 0)
+                if (_allRenderFiles[i].CompareTo(_allEngineFiles[engineIndex]) == 0)
                 {
-                    if (GetFileMD5(_allRenderFiles[i]) == GetFileMD5(_allEngineFiles[engineIndex]))
+                    if (GetFileMD5(renderFullPath) == GetFileMD5(engineFullPath))
                     {
+                        Console.WriteLine(String.Format("Render : {0}, engine : {1}", _allRenderFiles[i], _allEngineFiles[engineIndex]));
                     }
                     else
                     {
-                        _renderModifiedFiles.Add(_allRenderFiles[i]);
-                        _engineModifiedFiles.Add(_allEngineFiles[engineIndex]);
+                        _modifiedFiles.Add(renderFullPath);
                     }
                     engineIndex++;
                     continue;
                 }
-                else if (renderFullPath.CompareTo(engineFullPath) < 0)
+                else if (_allRenderFiles[i].CompareTo(_allEngineFiles[engineIndex]) < 0)
                 {
-                    _renderNewFiles.Add(_allRenderFiles[i]);
+                    _renderNewFiles.Add(renderFullPath);
                     continue;
                 }
                 else
                 {
-                    _engineNewFiles.Add(_allEngineFiles[engineIndex]);
+                    _engineNewFiles.Add(engineFullPath);
                     engineIndex++;
                     i--;
                     continue;
@@ -191,7 +228,7 @@ namespace CodeSync
 
             if (engineIndex < engineCount - 1)
             {
-                _engineNewFiles.AddRange(_allEngineFiles.GetRange(engineIndex, engineCount - engineIndex));
+                _engineNewFiles.AddRange(_allEngineFiles.GetRange(engineIndex, engineCount - engineIndex).ConvertAll(x => _enginePath + x));
             }
         }
 
@@ -202,19 +239,14 @@ namespace CodeSync
             {
                 Log(file);
             }
-            Log("RenderModFile");
-            foreach (var file in _renderModifiedFiles)
-            {
-                Log(file);
-            }
 
-            Log("EngineNewFiles");
+            Log("\nEngineNewFiles");
             foreach (var file in _engineNewFiles)
             {
                 Log(file);
             }
-            Log("EngineModFile");
-            foreach (var file in _engineModifiedFiles)
+            Log("\nModifiedFiles");
+            foreach (var file in _modifiedFiles)
             {
                 Log(file);
             }
