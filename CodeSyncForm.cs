@@ -192,7 +192,7 @@ namespace CodeSync
             {
                 if (i >= engineCount)
                 {
-                    _renderNewFiles.Add(_allRenderFiles[i]);
+                    _renderNewFiles.Add(_renderPath + _allRenderFiles[i]);
                     continue;
                 }
 
@@ -207,7 +207,7 @@ namespace CodeSync
                     }
                     else
                     {
-                        _modifiedFiles.Add(renderFullPath);
+                        _modifiedFiles.Add(_allRenderFiles[i]);
                     }
                     engineIndex++;
                     continue;
@@ -234,7 +234,13 @@ namespace CodeSync
 
         private void OnWorkerCompleted(object sender, EventArgs e)
         {
-            Log("RenderNewFiles");
+            Log("\nModifiedFiles");
+            foreach (var file in _modifiedFiles)
+            {
+                Log(file);
+            }
+
+            Log("\nRenderNewFiles");
             foreach (var file in _renderNewFiles)
             {
                 Log(file);
@@ -242,11 +248,6 @@ namespace CodeSync
 
             Log("\nEngineNewFiles");
             foreach (var file in _engineNewFiles)
-            {
-                Log(file);
-            }
-            Log("\nModifiedFiles");
-            foreach (var file in _modifiedFiles)
             {
                 Log(file);
             }
